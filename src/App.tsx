@@ -9,6 +9,7 @@ import { Icon } from "./components/icons";
 import { IconButton } from "./components/ui";
 import { Tasks } from "./views/Tasks";
 import { Chat } from "./views/Chat";
+import { FloatingAssistant } from "./views/FloatingAssistant";
 import { Toasts, type Toast } from "./views/Toasts";
 import type { ChangeEvent } from "./api";
 import logoUrl from "./assets/logo.svg?url";
@@ -121,6 +122,17 @@ export default function App() {
     setView(v);
   }
 
+  // re-pull app state from the API — used after the floating assistant runs a
+  // tool, so changes it makes are visible in the current tab.
+  async function refresh() {
+    if (!online) return;
+    try {
+      setTasks(await api.listTasks());
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div className="app">
       {/* ---------- TOP NAV ---------- */}
@@ -158,6 +170,9 @@ export default function App() {
         )}
         {view === "chat" && <Chat online={online} />}
       </div>
+
+      {/* persistent quick-access assistant on every tab except the full Assistant view */}
+      {view !== "chat" && <FloatingAssistant online={online} onChange={refresh} />}
 
       <Toasts toasts={toasts} />
     </div>

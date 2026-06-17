@@ -1,13 +1,14 @@
 /* ============================================================
    APP SHELL — nav rail, header, theme, routing
    ============================================================ */
-import { useEffect, useState } from "react";
-import type { Theme, View } from "./types";
-import { SEED_LISTS, SEED_TASKS } from "./data";
+import { useEffect, useRef, useState } from "react";
+import type { Note, Theme, View } from "./types";
+import { SEED_LISTS, SEED_NOTES, SEED_TASKS } from "./data";
 import { api, subscribeEvents } from "./api";
 import { Icon } from "./components/icons";
 import { IconButton } from "./components/ui";
 import { Tasks } from "./views/Tasks";
+import { Brain } from "./views/Brain";
 import { Chat } from "./views/Chat";
 import { FloatingAssistant } from "./views/FloatingAssistant";
 import { Toasts, type Toast } from "./views/Toasts";
@@ -15,6 +16,7 @@ import type { ChangeEvent } from "./api";
 import logoUrl from "./assets/logo.svg?url";
 
 function describeChange(e: ChangeEvent): string {
+  const noun = e.entity === "tasks" ? "task" : "note";
   const verb: Record<ChangeEvent["action"], string> = {
     created: "Added",
     updated: "Updated",
@@ -25,18 +27,23 @@ function describeChange(e: ChangeEvent): string {
   };
   // "Completed"/"Reopened" already imply task; others name the noun when no label
   return e.action === "completed" || e.action === "reopened"
-    ? `${verb[e.action]}${e.label ? ` “${e.label}”` : " task"}`
-    : `${verb[e.action]} task${e.label ? ` “${e.label}”` : ""}`;
+    ? `${verb[e.action]}${e.label ? ` “${e.label}”` : ` ${noun}`}`
+    : `${verb[e.action]} ${noun}${e.label ? ` “${e.label}”` : ""}`;
 }
 
 export default function App() {
   const [view, setView] = useState<View>(() => (localStorage.getItem("pos-view") as View) || "tasks");
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("pos-theme") as Theme) || "light");
+  const [contextOpen, setContextOpen] = useState(true);
 
   // shared state
   const [tasks, setTasks] = useState(SEED_TASKS);
   const [lists] = useState(SEED_LISTS);
   const [activeList, setActiveList] = useState(() => localStorage.getItem("pos-activeList") || "all");
+
+  const [notes, setNotes] = useState(SEED_NOTES);
+  const [activeNoteId, setActiveNoteId] = useState(SEED_NOTES[0].id);
+  const [search, setSearch] = useState("");
 
   // online = backend reachable; offline = seed data (standalone demo mode)
   const [online, setOnline] = useState(false);
@@ -69,7 +76,7 @@ export default function App() {
           setFlashIds((s) => new Set(s).add(id));
           setTimeout(() => setFlashIds((s) => { const n = new Set(s); n.delete(id); return n; }), 1600);
         }
-      }
+      } else if (e.entity === "notes") api.listNotes().then(setNotes).catch(() => {});
 
       // announce assistant actions globally
       if (e.source === "agent" && e.entity !== "chats") {
@@ -85,8 +92,10 @@ export default function App() {
     (async () => {
       try {
         await api.health();
-        const [t] = await Promise.all([api.listTasks()]);
+        const [t, n] = await Promise.all([api.listTasks(), api.listNotes()]);
         setTasks(t);
+        setNotes(n);
+        if (n[0]) setActiveNoteId(n[0].id);
         setOnline(true);
       } catch {
         /* backend down — keep seed data */
@@ -115,6 +124,23 @@ export default function App() {
     setTasks((ts) => ts.filter((t) => t.id !== id));
     if (online) api.deleteTask(id).catch(() => {});
   }
+  // local update is immediate; persistence is debounced so we don't write on
+  // every keystroke
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  function saveNote(note: Note) {
+    setNotes((ns) => ns.map((n) => (n.id === note.id ? note : n)));
+    if (!online) return;
+    clearTimeout(saveTimers.current[note.id]);
+    saveTimers.current[note.id] = setTimeout(() => {
+      api.saveNote(note).catch(() => {});
+    }, 450);
+  }
+  function newNote(): Note {
+    const n: Note = { id: "n" + Date.now(), title: "Untitled note", tags: [], updated: "2026-06-03", body: "" };
+    setNotes((ns) => [n, ...ns]);
+    if (online) api.saveNote(n).catch(() => {});
+    return n;
+  }
 
   const openTaskCount = tasks.filter((t) => !t.done).length;
 
@@ -127,7 +153,9 @@ export default function App() {
   async function refresh() {
     if (!online) return;
     try {
-      setTasks(await api.listTasks());
+      const [t, n] = await Promise.all([api.listTasks(), api.listNotes()]);
+      setTasks(t);
+      setNotes(n);
     } catch {
       /* ignore */
     }
@@ -147,12 +175,20 @@ export default function App() {
             <span>Tasks</span>
             <span className="nav-count">{openTaskCount}</span>
           </button>
+          <button className={`topnav-tab ${view === "brain" ? "active" : ""}`} onClick={() => go("brain")}>
+            <Icon.brain />
+            <span>Brain</span>
+            <span className="nav-count">{notes.length}</span>
+          </button>
           <button className={`topnav-tab ${view === "chat" ? "active" : ""}`} onClick={() => go("chat")}>
             <Icon.chat />
             <span>Assistant</span>
           </button>
         </nav>
         <div className="topnav-right">
+          {view === "brain" && (
+            <IconButton icon={<Icon.panel />} active={contextOpen} onClick={() => setContextOpen((v) => !v)} title="Toggle connections" />
+          )}
           <IconButton
             icon={theme === "light" ? <Icon.moon /> : <Icon.sun />}
             onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
@@ -167,6 +203,19 @@ export default function App() {
           <div className="scroll">
             <Tasks tasks={tasks} onAdd={addTask} onToggle={toggleTask} onDelete={deleteTask} lists={lists} activeList={activeList} setActiveList={setActiveList} flashIds={flashIds} />
           </div>
+        )}
+        {view === "brain" && (
+          <Brain
+            notes={notes}
+            onSaveNote={saveNote}
+            onNewNote={newNote}
+            activeNoteId={activeNoteId}
+            setActiveNoteId={setActiveNoteId}
+            search={search}
+            setSearch={setSearch}
+            contextOpen={contextOpen}
+            setContextOpen={setContextOpen}
+          />
         )}
         {view === "chat" && <Chat online={online} />}
       </div>

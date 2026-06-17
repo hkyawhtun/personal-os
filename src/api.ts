@@ -4,7 +4,7 @@
    If the server is unreachable, the app falls back to seed data
    (see App.tsx) so it still runs standalone for design demos.
    ============================================================ */
-import type { Task } from "./types";
+import type { Note, Task } from "./types";
 
 const BASE = (import.meta.env.VITE_API_URL as string) || "http://localhost:4000";
 
@@ -24,6 +24,12 @@ export const api = {
   addTask: (t: Partial<Task>) => req<Task>("/api/tasks", { method: "POST", body: JSON.stringify(t) }),
   toggleTask: (id: string) => req<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({}) }),
   deleteTask: (id: string) => req<{ id: string }>(`/api/tasks/${id}`, { method: "DELETE" }),
+  listNotes: () => req<Note[]>("/api/notes"),
+  saveNote: (n: Partial<Note>) =>
+    n.id
+      ? req<Note>(`/api/notes/${n.id}`, { method: "PUT", body: JSON.stringify(n) })
+      : req<Note>("/api/notes", { method: "POST", body: JSON.stringify(n) }),
+  deleteNote: (id: string) => req<{ id: string }>(`/api/notes/${id}`, { method: "DELETE" }),
   agent: (goal: string) => req<AgentResult>("/api/agent", { method: "POST", body: JSON.stringify({ goal }) }),
 
   // assistant chat threads
@@ -36,7 +42,7 @@ export const api = {
 };
 
 export interface ChangeEvent {
-  entity: "tasks" | "chats";
+  entity: "tasks" | "chats" | "notes";
   action: "created" | "updated" | "completed" | "reopened" | "deleted" | "generated";
   label?: string;
   id?: string;

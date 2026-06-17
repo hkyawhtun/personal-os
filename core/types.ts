@@ -17,9 +17,17 @@ export interface Task {
   priority?: boolean;
 }
 
+export interface Note {
+  id: string;
+  title: string;
+  tags: string[];
+  updated: string;
+  body: string;
+}
+
 /** A live change notification (broadcast over SSE). */
 export interface ChangeEvent {
-  entity: "tasks" | "chats";
+  entity: "tasks" | "chats" | "notes";
   action: "created" | "updated" | "completed" | "reopened" | "deleted" | "generated";
   label?: string; // human summary, e.g. the task/note title
   id?: string;
@@ -56,4 +64,11 @@ export interface NewTask {
   due?: string | null;
   note?: string | null;
   priority?: boolean;
+}
+
+export interface NoteInput {
+  id?: string;
+  title: string;
+  tags?: string[];
+  body?: string;
 }

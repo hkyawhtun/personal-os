@@ -10,6 +10,7 @@ import { pinoHttp } from "pino-http";
 import { logger } from "./logger.ts";
 import {
   listTasks, addTask, toggleTask, setTaskDone, deleteTask,
+  listNotes, getNote, upsertNote, deleteNote, backlinks,
   seedIfEmpty,
   listChats, createChat, getChat, deleteChat, listMessages, addMessage,
   onChange, withSource,
@@ -54,6 +55,18 @@ app.patch("/api/tasks/:id", (req: Request, res: Response) => {
 });
 app.delete("/api/tasks/:id", (req: Request, res: Response) => {
   return deleteTask(req.params.id) ? ok(res, { id: req.params.id }) : fail(res, 404, "not found");
+});
+
+/* ---- notes ---- */
+app.get("/api/notes", (req: Request, res: Response) => ok(res, listNotes(req.query.q as string | undefined)));
+app.get("/api/notes/:id", (req: Request, res: Response) => {
+  const n = getNote(req.params.id);
+  return n ? ok(res, { ...n, backlinks: backlinks(n.title).map((b) => ({ id: b.id, title: b.title })) }) : fail(res, 404, "not found");
+});
+app.post("/api/notes", (req: Request, res: Response) => ok(res, upsertNote(req.body || {})));
+app.put("/api/notes/:id", (req: Request, res: Response) => ok(res, upsertNote({ ...req.body, id: req.params.id })));
+app.delete("/api/notes/:id", (req: Request, res: Response) => {
+  return deleteNote(req.params.id) ? ok(res, { id: req.params.id }) : fail(res, 404, "not found");
 });
 
 /* ---- agent ---- */

@@ -7,8 +7,9 @@
    ============================================================ */
 import {
   addTask, listTasks, setTaskDone, deleteTask,
+  listNotes, getNote, upsertNote, deleteNote, backlinks,
 } from "../core/db.ts";
-import type { Task } from "../core/types.ts";
+import type { Task, Note } from "../core/types.ts";
 
 export interface Tool {
   name: string;
@@ -59,6 +60,22 @@ function findTask(args: Record<string, unknown>): Task | null {
 }
 function taskLine(t: Task): string {
   return `${t.id} · ${t.title}${t.priority ? " ★" : ""} · ${t.list}${t.due ? ` · due ${t.due}` : ""}${t.done ? " · done" : ""}`;
+}
+/** Resolve a note by id, exact title, then token overlap. */
+function findNote(args: Record<string, unknown>): Note | null {
+  const key = str(args.id) || str(args.title);
+  if (!key) return null;
+  const direct = getNote(key);
+  if (direct) return direct;
+  const want = new Set(tokens(key));
+  if (want.size === 0) return null;
+  let best: Note | null = null;
+  let bestScore = 0;
+  for (const n of listNotes()) {
+    const score = tokens(n.title).filter((w) => want.has(w)).length;
+    if (score > bestScore) { bestScore = score; best = n; }
+  }
+  return bestScore > 0 ? best : null;
 }
 
 export const tools: Tool[] = [
@@ -123,6 +140,78 @@ export const tools: Tool[] = [
       if (!t) return "error: no matching task";
       setTaskDone(t.id, false);
       return `reopened ${t.title}`;
+    },
+  },
+  {
+    name: "search_notes",
+    description: "Search the Second Brain notes by text; returns matching titles + snippets.",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    execute: async (a) => {
+      const notes = listNotes(str(a.query));
+      return notes.length ? notes.map((n) => `${n.title}: ${n.body.slice(0, 100)}`).join("\n") : "(no notes match)";
+    },
+  },
+  {
+    name: "get_note",
+    description: "Read a single note by title (or id), with its backlinks.",
+    parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+    execute: async (a) => {
+      const n = getNote(str(a.title) || "");
+      if (!n) return "error: note not found";
+      const bl = backlinks(n.title).map((b) => b.title);
+      return `# ${n.title}\n${n.body}${bl.length ? `\n\nBacklinks: ${bl.join(", ")}` : ""}`;
+    },
+  },
+  {
+    name: "create_note",
+    description: "Create a Second Brain note. Body may use markdown and [[wiki-links]].",
+    parameters: {
+      type: "object",
+      properties: { title: { type: "string" }, body: { type: "string" }, tags: { type: "array", items: { type: "string" } } },
+      required: ["title"],
+    },
+    execute: async (a) => {
+      const title = str(a.title);
+      if (!title) return "error: title is required";
+      const tags = Array.isArray(a.tags) ? (a.tags as string[]) : [];
+      const n = upsertNote({ title, body: str(a.body) || "", tags });
+      return `created note "${n.title}"`;
+    },
+  },
+  {
+    name: "update_note",
+    description: "Edit an existing note's body, tags, or title. Find it by title or id; only the fields you pass are changed.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "the note to edit (current title or id)" },
+        body: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        new_title: { type: "string", description: "rename the note" },
+      },
+      required: ["title"],
+    },
+    execute: async (a) => {
+      const n = findNote(a);
+      if (!n) return "error: note not found";
+      const updated = upsertNote({
+        id: n.id,
+        title: str(a.new_title) || n.title,
+        body: str(a.body) ?? n.body,
+        tags: Array.isArray(a.tags) ? (a.tags as string[]) : n.tags,
+      });
+      return `updated note "${updated.title}"`;
+    },
+  },
+  {
+    name: "delete_note",
+    description: "Delete a note, by title or id.",
+    parameters: { type: "object", properties: { title: { type: "string" }, id: { type: "string" } } },
+    execute: async (a) => {
+      const n = findNote(a);
+      if (!n) return "error: note not found";
+      deleteNote(n.id);
+      return `deleted note "${n.title}"`;
     },
   },
 ];

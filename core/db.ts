@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Task, NewTask, Chat, ChatMessage, ChangeEvent } from "./types.ts";
+import type { Task, Note, NewTask, NoteInput, Chat, ChatMessage, ChangeEvent } from "./types.ts";
 
 /** DB path: POS_DB env var, else <core>/../.data/pos.db */
 export const DB_PATH = process.env.POS_DB || join(import.meta.dirname, "..", ".data", "pos.db");
@@ -27,6 +27,13 @@ db.exec(`
     done      INTEGER NOT NULL DEFAULT 0,
     priority  INTEGER NOT NULL DEFAULT 0,
     created   TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS notes (
+    id        TEXT PRIMARY KEY,
+    title     TEXT NOT NULL,
+    tags      TEXT NOT NULL DEFAULT '[]',
+    body      TEXT NOT NULL DEFAULT '',
+    updated   TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS chats (
     id        TEXT PRIMARY KEY,
@@ -56,6 +63,13 @@ interface TaskRow {
   priority: number;
   created: string;
 }
+interface NoteRow {
+  id: string;
+  title: string;
+  tags: string;
+  body: string;
+  updated: string;
+}
 
 /* ---------- helpers ---------- */
 const nowIso = (): string => new Date().toISOString();
@@ -63,6 +77,9 @@ const rid = (p: string): string => p + Math.random().toString(36).slice(2, 9);
 
 function taskOut(r: TaskRow): Task {
   return { id: r.id, list: r.list, title: r.title, note: r.note || undefined, due: r.due || null, done: !!r.done, priority: !!r.priority };
+}
+function noteOut(r: NoteRow): Note {
+  return { id: r.id, title: r.title, tags: JSON.parse(r.tags) as string[], body: r.body, updated: r.updated };
 }
 
 /* ---------- change events (powers live SSE updates) ----------
@@ -116,6 +133,54 @@ export function deleteTask(id: string): boolean {
   return ok;
 }
 
+/* ---------- notes ---------- */
+export function listNotes(search?: string): Note[] {
+  const rows = db.prepare("SELECT * FROM notes ORDER BY updated DESC").all() as unknown as NoteRow[];
+  const notes = rows.map(noteOut);
+  if (!search) return notes;
+  const q = search.toLowerCase();
+  return notes.filter((n) => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q)));
+}
+export function getNote(idOrTitle: string): Note | null {
+  let r = db.prepare("SELECT * FROM notes WHERE id = ?").get(idOrTitle) as unknown as NoteRow | undefined;
+  if (!r) r = db.prepare("SELECT * FROM notes WHERE lower(title) = lower(?)").get(idOrTitle) as unknown as NoteRow | undefined;
+  return r ? noteOut(r) : null;
+}
+export function upsertNote({ id, title, tags = [], body = "" }: NoteInput): Note {
+  const updated = new Date().toISOString().slice(0, 10);
+  if (id) {
+    const exists = db.prepare("SELECT id FROM notes WHERE id = ?").get(id);
+    if (exists) {
+      db.prepare("UPDATE notes SET title=?, tags=?, body=?, updated=? WHERE id=?")
+        .run(title, JSON.stringify(tags), body, updated, id);
+      emit("notes", "updated", title, id);
+      return getNote(id) as Note;
+    }
+  }
+  const nid = id || rid("n");
+  db.prepare("INSERT INTO notes (id,title,tags,body,updated) VALUES (?,?,?,?,?)")
+    .run(nid, title, JSON.stringify(tags), body, updated);
+  emit("notes", "created", title, nid);
+  return getNote(nid) as Note;
+}
+export function deleteNote(id: string): boolean {
+  const r = db.prepare("SELECT title FROM notes WHERE id = ?").get(id) as unknown as { title: string } | undefined;
+  const ok = db.prepare("DELETE FROM notes WHERE id = ?").run(id).changes > 0;
+  if (ok) emit("notes", "deleted", r?.title, id);
+  return ok;
+}
+
+/* extract [[wiki-links]] from all notes → simple link graph */
+export function backlinks(title: string): Note[] {
+  const t = title.toLowerCase();
+  return listNotes().filter((n) => {
+    const re = /\[\[([^\]]+)\]\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(n.body)) !== null) if (m[1].toLowerCase() === t) return true;
+    return false;
+  });
+}
+
 /* ---------- seed (only if empty) ---------- */
 export function seedIfEmpty(): boolean {
   const count = (db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as unknown as { n: number }).n;
@@ -131,6 +196,13 @@ export function seedIfEmpty(): boolean {
   ];
   const ins = db.prepare("INSERT INTO tasks (id,list,title,note,due,done,priority,created) VALUES (?,?,?,?,?,?,?,?)");
   for (const t of seedTasks) ins.run(t.id, t.list, t.title, t.note, t.due, t.done, t.priority, t.created);
+
+  const seedNotes = [
+    { id: "n-second-brain", title: "Second Brain", tags: ["system"], updated: "2026-05-30", body: "A Second Brain is just notes that link to each other. The value isn't the note — it's the connections. Pairs with [[Daily Brief]]." },
+    { id: "n-daily-brief", title: "Daily Brief", tags: ["system", "ritual"], updated: "2026-06-03", body: "Every morning the [[Personal OS]] reads [[Tasks]] and the [[Second Brain]] and writes me a short report." },
+  ];
+  const insN = db.prepare("INSERT INTO notes (id,title,tags,body,updated) VALUES (?,?,?,?,?)");
+  for (const n of seedNotes) insN.run(n.id, n.title, JSON.stringify(n.tags), n.body, n.updated);
   return true;
 }
 

@@ -16,5 +16,13 @@ export interface Task {
   priority?: boolean;
 }
 
-export type View = "tasks" | "chat";
+export interface Note {
+  id: string;
+  title: string;
+  tags: string[];
+  updated: string;
+  body: string;
+}
+
+export type View = "tasks" | "chat" | "brain";
 export type Theme = "light" | "dark";

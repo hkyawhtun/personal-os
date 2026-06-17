@@ -1,0 +1,11 @@
+{
+  "name": "personal-os-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared data + domain layer for Personal OS (server + CLI). Uses built-in node:sqlite — no external deps. Runs natively as TypeScript on Node 25+.",
+  "main": "db.ts",
+  "scripts": {
+    "test": "node --test db.test.ts"
+  }
+}

@@ -1,0 +1,8 @@
+<!-- Intentionally WRONG logo for the Lesson 4 / slide 38 /chrome demo.
+     At the step-06-logo checkpoint the app ships THIS (off-brand: grey circle,
+     stale "OS?" placeholder). The live demo replaces it with src/assets/logo.svg
+     and verifies the change visually via /chrome. -->
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="logo placeholder">
+  <circle cx="20" cy="20" r="19" fill="#9aa3af"/>
+  <text x="20" y="26" text-anchor="middle" font-family="monospace" font-size="14" font-weight="700" fill="#fff">OS?</text>
+</svg>

@@ -1,0 +1,11 @@
+{
+  "name": "personal-os-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The agentic loop we own — plugin tools (one per app action) driven by a local Ollama model. Runs TypeScript natively on Node 25+.",
+  "main": "loop.ts",
+  "scripts": {
+    "test": "node --test tools.test.ts loop.test.ts"
+  }
+}
